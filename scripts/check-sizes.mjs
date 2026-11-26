@@ -5,7 +5,12 @@
 // scale (chrome, zoom) on the same line. Sizes that follow something else
 // say so in ALLOWED, with why.
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+
+// ALLOWED and the import search below are written with forward slashes, as
+// the repository names its files everywhere else; join() gives backslashes
+// on Windows, where a plain "src" key would then never match.
+const posix = (path) => path.split(sep).join("/");
 
 const SIZE =
   /^(?:export\s+)?const\s+([A-Z][A-Z0-9_]*)\s*=\s*[1-9]\d*(?:\.\d+)?\s*;/;
@@ -63,7 +68,8 @@ function* files(dir) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) {
       if (!/^(i18n|dev|ios)$/.test(name)) yield* files(path);
-    } else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) yield path;
+    } else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name))
+      yield posix(path);
   }
 }
 

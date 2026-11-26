@@ -5,7 +5,11 @@
 // document's own text, a glyph sized to its badge, the phone's own rules.
 // Sizes relative to the text around them (em, %) are fine.
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+
+// The keys below are written with forward slashes, as the repository names
+// its files everywhere else; join() gives backslashes on Windows.
+const posix = (path) => path.split(sep).join("/");
 
 const FIXED = /font-size:\s*([^;]*\d(?:px|rem|pt)\b[^;]*);/;
 const TOKEN = /var\(--text-/;
@@ -30,7 +34,7 @@ function* files(dir) {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) yield* files(path);
-    else if (name.endsWith(".css")) yield path;
+    else if (name.endsWith(".css")) yield posix(path);
   }
 }
 

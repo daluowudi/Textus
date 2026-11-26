@@ -315,7 +315,18 @@ mod tests {
 
     #[test]
     fn the_system_proxy_is_read_with_its_credentials() {
-        // The environment is read first, as the system's settings are.
+        // On Windows the machine's own settings are read before the
+        // environment, so a machine that has a proxy configured answers
+        // with that one rather than this test's.
+        #[cfg(windows)]
+        let configured = system_proxy_winhttp().or_else(system_proxy_from_registry);
+        #[cfg(not(windows))]
+        let configured = None;
+        if configured.is_some() {
+            assert_eq!(system_proxy_now(), configured);
+            return;
+        }
+        // With none configured, the environment names it, credentials too.
         std::env::set_var("HTTPS_PROXY", "http://ann:pw@proxy.example:3128");
         let found = system_proxy_now();
         std::env::remove_var("HTTPS_PROXY");

@@ -3,13 +3,18 @@
 // twice in src/ or src-tauri/src/ (jscpd), tests, tables and generated
 // files aside. The copies there today are listed; they may go, not grow.
 // `--list` prints every copy found and exits 0.
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// COPIES_NOW and the report's lines are written with forward slashes, as the
+// repository names its files everywhere else; jscpd answers with backslashes
+// on Windows, where a plain "ai/rules/ru.rs" key would never match.
+const posix = (path) => path.split(sep).join("/");
 
 const IGNORE = [
   "**/*.test.ts",
@@ -34,12 +39,16 @@ const COPIES_NOW = {
   "editor/marks/enclosure-moves.ts | editor/marks/enclosure-moves.ts": 1,
 };
 
-const out = mkdtempSync(join(tmpdir(), "textus-jscpd-"));
-let report;
-try {
-  execFileSync(
-    join(root, "node_modules/.bin/jscpd"),
+/** jscpd's report, written into `out` and read back. It exits 0 whatever it
+ *  finds: what it found is the report, not the status. Its own output is
+ *  kept for a failure message: a folder it cannot write into says so there. */
+function runJscpd(out) {
+  const run = spawnSync(
+    // jscpd's own entry, run through this Node. The node_modules/.bin/jscpd
+    // beside it is a POSIX shell script, which Windows cannot execute.
+    process.execPath,
     [
+      join(root, "node_modules/jscpd/run-jscpd.js"),
       "src",
       "src-tauri/src",
       "--format",
@@ -54,17 +63,43 @@ try {
       out,
       "--silent",
     ],
-    { cwd: root, stdio: ["ignore", "ignore", "inherit"] },
+    { cwd: root, encoding: "utf8" },
   );
-  report = JSON.parse(readFileSync(join(out, "jscpd-report.json"), "utf8"));
-} finally {
-  rmSync(out, { recursive: true, force: true });
+  if (run.status !== 0)
+    throw new Error(
+      (run.stderr || run.stdout || "").trim() || `jscpd exited ${run.status}`,
+    );
+  return JSON.parse(readFileSync(join(out, "jscpd-report.json"), "utf8"));
 }
+
+/** The report, from the first folder jscpd will write into: the temporary
+ *  folder, or the repository's ignored .cache/ where a machine refuses it
+ *  there (the native build answers Windows' os error 5 for %TEMP%). */
+function readReport() {
+  const cache = join(root, ".cache");
+  mkdirSync(cache, { recursive: true });
+  let failure;
+  for (const parent of [tmpdir(), cache]) {
+    const out = mkdtempSync(join(parent, "textus-jscpd-"));
+    try {
+      return runJscpd(out);
+    } catch (error) {
+      failure = error;
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }
+  throw failure;
+}
+
+const report = readReport();
 
 const found = {};
 for (const d of report.duplicates) {
-  const at = (f) => `${f.name}:${f.start}`;
-  const key = [d.firstFile.name, d.secondFile.name].sort().join(" | ");
+  const at = (f) => `${posix(f.name)}:${f.start}`;
+  const key = [posix(d.firstFile.name), posix(d.secondFile.name)]
+    .sort()
+    .join(" | ");
   (found[key] ??= []).push(`${at(d.firstFile)} and ${at(d.secondFile)}`);
 }
 
